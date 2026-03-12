@@ -33,6 +33,20 @@ public actor FabricBroker {
         }
     }
 
+    public func unregisterApp(_ appID: String) {
+        resourceProviders[appID] = nil
+        actionProviders[appID] = nil
+        subscriptionProviders[appID] = nil
+
+        let subscriberIDs = subscribers.values
+            .filter { $0.request.appID == appID || $0.callerAppID == appID }
+            .map(\.id)
+
+        for subscriberID in subscriberIDs {
+            removeSubscriber(id: subscriberID)
+        }
+    }
+
     public func registerResourceProvider(_ provider: AnyFabricResourceProvider) throws {
         try registerResourceProvider(provider, expectedAppID: provider.appID)
     }

@@ -1,38 +1,31 @@
 import Foundation
-import Dispatch
 import Fabric
-import FabricGateway
-
-struct FabricBrokerRuntimeService {
-    let broker: FabricBroker
-    let gateway: FabricGateway
-
-    func start() {
-        let info = gateway.initializeResponse()
-        print("Fabric broker runtime started: \(info.serverInfo.name) \(info.serverInfo.version)")
-        dispatchMain()
-    }
-}
 
 @main
 struct FabricBrokerRuntimeMain {
     static func main() throws {
-        let broker = FabricBroker()
-        let gateway = FabricGateway(broker: broker)
+        let arguments = CommandLine.arguments
+        let machServiceName: String = {
+            guard let index = arguments.firstIndex(of: "--mach-service"),
+                  arguments.indices.contains(index + 1) else {
+                return FabricXPCConstants.machServiceName
+            }
+            return arguments[index + 1]
+        }()
 
-        if CommandLine.arguments.contains("--describe") {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(gateway.initializeResponse())
+        if arguments.contains("--describe") {
+            let configuration = FabricLaunchAgentConfiguration(
+                machServiceName: machServiceName,
+                executablePath: CommandLine.arguments[0]
+            )
+            let data = try configuration.renderedPropertyList()
             FileHandle.standardOutput.write(data)
             FileHandle.standardOutput.write(Data("\n".utf8))
             return
         }
 
-        let service = FabricBrokerRuntimeService(
-            broker: broker,
-            gateway: gateway
-        )
-        service.start()
+        let service = FabricXPCService(machServiceName: machServiceName)
+        fputs("Fabric broker runtime listening on mach service \(machServiceName)\n", stderr)
+        service.run()
     }
 }
