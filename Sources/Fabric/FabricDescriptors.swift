@@ -8,6 +8,25 @@ public enum FabricResourceCapability: String, Codable, CaseIterable, Hashable, S
     case snapshot
 }
 
+public struct FabricPresentationHints: Codable, Sendable, Equatable, Hashable {
+    public let systemImage: String?
+    public let tint: String?
+    public let subtitle: String?
+    public let categoryLabel: String?
+
+    public init(
+        systemImage: String? = nil,
+        tint: String? = nil,
+        subtitle: String? = nil,
+        categoryLabel: String? = nil
+    ) {
+        self.systemImage = systemImage
+        self.tint = tint
+        self.subtitle = subtitle
+        self.categoryLabel = categoryLabel
+    }
+}
+
 public struct FabricResourceDescriptor: Codable, Sendable, Equatable, Hashable, Identifiable {
     public let uri: FabricURI
     public let kind: String
@@ -15,6 +34,7 @@ public struct FabricResourceDescriptor: Codable, Sendable, Equatable, Hashable, 
     public let summary: String
     public let capabilities: Set<FabricResourceCapability>
     public let metadata: FabricMetadata
+    public let presentation: FabricPresentationHints?
 
     public init(
         uri: FabricURI,
@@ -22,7 +42,8 @@ public struct FabricResourceDescriptor: Codable, Sendable, Equatable, Hashable, 
         title: String,
         summary: String,
         capabilities: Set<FabricResourceCapability>,
-        metadata: FabricMetadata = [:]
+        metadata: FabricMetadata = [:],
+        presentation: FabricPresentationHints? = nil
     ) {
         self.uri = uri
         self.kind = kind
@@ -30,6 +51,7 @@ public struct FabricResourceDescriptor: Codable, Sendable, Equatable, Hashable, 
         self.summary = summary
         self.capabilities = capabilities
         self.metadata = metadata
+        self.presentation = presentation
     }
 
     public var id: String { uri.rawValue }
@@ -41,19 +63,22 @@ public struct FabricContextPayload: Codable, Sendable, Equatable {
     public let title: String
     public let body: String
     public let metadata: FabricMetadata
+    public let presentation: FabricPresentationHints?
 
     public init(
         uri: FabricURI,
         kind: String,
         title: String,
         body: String,
-        metadata: FabricMetadata = [:]
+        metadata: FabricMetadata = [:],
+        presentation: FabricPresentationHints? = nil
     ) {
         self.uri = uri
         self.kind = kind
         self.title = title
         self.body = body
         self.metadata = metadata
+        self.presentation = presentation
     }
 }
 
