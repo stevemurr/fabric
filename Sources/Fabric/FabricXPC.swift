@@ -57,6 +57,66 @@ private final class FabricStringReplyBox: @unchecked Sendable {
     }
 }
 
+func fabricFirstPartyChatAppID(for providerAppID: String) -> String? {
+    guard let separatorIndex = providerAppID.firstIndex(of: ".") else {
+        return nil
+    }
+
+    let suiteID = providerAppID[..<separatorIndex]
+    guard !suiteID.isEmpty else {
+        return nil
+    }
+
+    return "\(suiteID).chat"
+}
+
+func fabricFirstPartyBootstrapGrants(
+    for providerAppID: String,
+    actions: [FabricActionDescriptor]
+) -> [FabricPermissionGrant] {
+    guard let chatAppID = fabricFirstPartyChatAppID(for: providerAppID) else {
+        return []
+    }
+
+    var grants: Set<FabricPermissionGrant> = [
+        FabricPermissionGrant(
+            callerAppID: chatAppID,
+            calleeAppID: providerAppID,
+            capability: .discoverResources
+        ),
+        FabricPermissionGrant(
+            callerAppID: chatAppID,
+            calleeAppID: providerAppID,
+            capability: .readContext
+        ),
+        FabricPermissionGrant(
+            callerAppID: chatAppID,
+            calleeAppID: providerAppID,
+            capability: .subscribeResources
+        ),
+    ]
+
+    for action in actions {
+        grants.insert(
+            FabricPermissionGrant(
+                callerAppID: chatAppID,
+                calleeAppID: providerAppID,
+                capability: .invokeAction(action.id)
+            )
+        )
+    }
+
+    return Array(grants).sorted {
+        if $0.callerAppID != $1.callerAppID {
+            return $0.callerAppID < $1.callerAppID
+        }
+        if $0.calleeAppID != $1.calleeAppID {
+            return $0.calleeAppID < $1.calleeAppID
+        }
+        return $0.capability.rawValue < $1.capability.rawValue
+    }
+}
+
 @objc public protocol FabricXPCBrokerProtocol {
     func registerApp(_ registrationData: Data, reply: @escaping (NSError?) -> Void)
     func unregisterApp(_ appID: String, reply: @escaping (NSError?) -> Void)
@@ -644,6 +704,11 @@ actor FabricXPCServiceCoordinator {
                 subscriptionProvider: subscriptionProvider
             )
         )
+
+        let actions = (try? await actionProvider?.listActions()) ?? []
+        for grant in fabricFirstPartyBootstrapGrants(for: request.appID, actions: actions) {
+            await broker.grant(grant)
+        }
 
         connectionsByAppID[request.appID] = connection
         appIDByConnectionID[connectionID, default: []].insert(request.appID)
