@@ -57,44 +57,107 @@ private final class FabricStringReplyBox: @unchecked Sendable {
     }
 }
 
-func fabricFirstPartyChatAppID(for providerAppID: String) -> String? {
-    guard let separatorIndex = providerAppID.firstIndex(of: ".") else {
+func fabricFirstPartySuiteID(for appID: String) -> String? {
+    guard let separatorIndex = appID.firstIndex(of: ".") else {
         return nil
     }
 
-    let suiteID = providerAppID[..<separatorIndex]
+    let suiteID = appID[..<separatorIndex]
     guard !suiteID.isEmpty else {
+        return nil
+    }
+
+    return String(suiteID)
+}
+
+func fabricFirstPartyChatAppID(for providerAppID: String) -> String? {
+    guard let suiteID = fabricFirstPartySuiteID(for: providerAppID) else {
         return nil
     }
 
     return "\(suiteID).chat"
 }
 
-func fabricFirstPartyBootstrapGrants(
+func fabricFirstPartySiblingResourceGrants(
     for providerAppID: String,
-    actions: [FabricActionDescriptor]
+    existingAppIDs: [String]
 ) -> [FabricPermissionGrant] {
-    guard let chatAppID = fabricFirstPartyChatAppID(for: providerAppID) else {
+    guard let suiteID = fabricFirstPartySuiteID(for: providerAppID) else {
         return []
     }
 
-    var grants: Set<FabricPermissionGrant> = [
-        FabricPermissionGrant(
-            callerAppID: chatAppID,
-            calleeAppID: providerAppID,
-            capability: .discoverResources
-        ),
-        FabricPermissionGrant(
-            callerAppID: chatAppID,
-            calleeAppID: providerAppID,
-            capability: .readContext
-        ),
-        FabricPermissionGrant(
-            callerAppID: chatAppID,
-            calleeAppID: providerAppID,
-            capability: .subscribeResources
-        ),
+    let siblingAppIDs = existingAppIDs
+        .filter { $0 != providerAppID && fabricFirstPartySuiteID(for: $0) == suiteID }
+        .sorted()
+    let capabilities: [FabricCapability] = [
+        .discoverResources,
+        .readContext,
+        .subscribeResources,
     ]
+
+    var grants: Set<FabricPermissionGrant> = []
+
+    for siblingAppID in siblingAppIDs {
+        for capability in capabilities {
+            grants.insert(
+                FabricPermissionGrant(
+                    callerAppID: providerAppID,
+                    calleeAppID: siblingAppID,
+                    capability: capability
+                )
+            )
+            grants.insert(
+                FabricPermissionGrant(
+                    callerAppID: siblingAppID,
+                    calleeAppID: providerAppID,
+                    capability: capability
+                )
+            )
+        }
+    }
+
+    return Array(grants).sorted {
+        if $0.callerAppID != $1.callerAppID {
+            return $0.callerAppID < $1.callerAppID
+        }
+        if $0.calleeAppID != $1.calleeAppID {
+            return $0.calleeAppID < $1.calleeAppID
+        }
+        return $0.capability.rawValue < $1.capability.rawValue
+    }
+}
+
+func fabricFirstPartyBootstrapGrants(
+    for providerAppID: String,
+    actions: [FabricActionDescriptor],
+    existingAppIDs: [String] = []
+) -> [FabricPermissionGrant] {
+    guard fabricFirstPartySuiteID(for: providerAppID) != nil,
+          let chatAppID = fabricFirstPartyChatAppID(for: providerAppID) else {
+        return []
+    }
+
+    var grants = Set(
+        fabricFirstPartySiblingResourceGrants(
+            for: providerAppID,
+            existingAppIDs: existingAppIDs
+        )
+    )
+    let chatCapabilities: [FabricCapability] = [
+        .discoverResources,
+        .readContext,
+        .subscribeResources,
+    ]
+
+    for capability in chatCapabilities {
+        grants.insert(
+            FabricPermissionGrant(
+                callerAppID: chatAppID,
+                calleeAppID: providerAppID,
+                capability: capability
+            )
+        )
+    }
 
     for action in actions {
         grants.insert(
@@ -706,7 +769,11 @@ actor FabricXPCServiceCoordinator {
         )
 
         let actions = (try? await actionProvider?.listActions()) ?? []
-        for grant in fabricFirstPartyBootstrapGrants(for: request.appID, actions: actions) {
+        for grant in fabricFirstPartyBootstrapGrants(
+            for: request.appID,
+            actions: actions,
+            existingAppIDs: Array(connectionsByAppID.keys)
+        ) {
             await broker.grant(grant)
         }
 

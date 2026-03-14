@@ -45,6 +45,50 @@ final class FabricXPCBootstrapTests: XCTestCase {
         )
     }
 
+    func testBootstrapGrantsMutualResourceAccessToRegisteredSiblingApps() {
+        let grants = fabricFirstPartyBootstrapGrants(
+            for: "wheel.notes",
+            actions: [],
+            existingAppIDs: ["wheel.browser", "wheel.chat", "external.docs", "wheel.notes"]
+        )
+
+        XCTAssertTrue(
+            Set([
+                FabricPermissionGrant(
+                    callerAppID: "wheel.notes",
+                    calleeAppID: "wheel.browser",
+                    capability: .discoverResources
+                ),
+                FabricPermissionGrant(
+                    callerAppID: "wheel.notes",
+                    calleeAppID: "wheel.browser",
+                    capability: .readContext
+                ),
+                FabricPermissionGrant(
+                    callerAppID: "wheel.notes",
+                    calleeAppID: "wheel.browser",
+                    capability: .subscribeResources
+                ),
+                FabricPermissionGrant(
+                    callerAppID: "wheel.browser",
+                    calleeAppID: "wheel.notes",
+                    capability: .discoverResources
+                ),
+                FabricPermissionGrant(
+                    callerAppID: "wheel.browser",
+                    calleeAppID: "wheel.notes",
+                    capability: .readContext
+                ),
+                FabricPermissionGrant(
+                    callerAppID: "wheel.browser",
+                    calleeAppID: "wheel.notes",
+                    capability: .subscribeResources
+                ),
+            ])
+            .isSubset(of: Set(grants))
+        )
+    }
+
     func testBootstrapSkipsAppsWithoutSuitePrefix() {
         XCTAssertTrue(
             fabricFirstPartyBootstrapGrants(
