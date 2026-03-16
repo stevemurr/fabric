@@ -2,11 +2,13 @@
 
 Fabric is a local macOS substrate for inter-app context sharing. Apps register resource, action, and subscription providers with a broker; other apps can then discover `fabric://...` resources, resolve them into context payloads, invoke actions, and subscribe to updates.
 
-This package currently ships three products:
+This package currently ships five products:
 
 - `Fabric`: core broker, provider protocols, permission model, subscriptions, and XPC client/service support.
 - `FabricGateway`: an MCP-shaped projection over a `FabricBroker`.
+- `FabricShowcaseSupport`: shared models and provider actors for the showcase example.
 - `FabricBrokerRuntime`: a standalone broker runtime you can install as a LaunchAgent-backed Mach service.
+- `FabricShowcase`: a role-based macOS example that launches browser, notebook, and lens windows as separate processes.
 
 ## Requirements
 
@@ -64,6 +66,30 @@ That script:
 The default Mach service name is `com.stevemurr.fabric.broker`.
 
 You do not need the LaunchAgent if you embed `FabricBroker` directly in-process.
+
+### Launch the Context Relay Showcase
+
+The showcase is a developer-facing demo of Fabric as a local context substrate:
+
+- `browser` exposes `current page`, `selection`, and `tab` resources.
+- `notes` consumes browser context and mutates note resources through Fabric actions.
+- `lens` projects the same shared broker through the MCP-shaped gateway surface.
+
+Install the shared broker runtime first, then launch the three windows:
+
+```bash
+./scripts/run-showcase.sh
+```
+
+That script builds `FabricShowcase` and launches three processes against the shared LaunchAgent-backed broker.
+
+You can also run each role manually:
+
+```bash
+swift run FabricShowcase --role browser
+swift run FabricShowcase --role notes
+swift run FabricShowcase --role lens
+```
 
 ## Core model
 
@@ -377,8 +403,38 @@ print(tools.map(\.name))
 print(toolResult.content.first?.text ?? "")
 ```
 
+If you are already connected to the shared LaunchAgent-backed broker through `FabricXPCClient`, use `FabricXPCGateway` to project the same resources and tools without embedding `FabricBroker` in-process:
+
+```swift
+import Fabric
+import FabricGateway
+
+let client = FabricXPCClient()
+let gateway = FabricXPCGateway(client: client)
+
+let tools = try await gateway.listTools(callerAppID: "showcase.chat")
+let token = try await client.issueConfirmationToken(
+    callerAppID: "showcase.chat",
+    calleeAppID: "showcase.notes",
+    actionID: "showcase.notes.create-note"
+)
+
+let result = try await gateway.callTool(
+    callerAppID: "showcase.chat",
+    name: "showcase.notes.create-note",
+    arguments: [
+        "title": .string("Lens Capture"),
+        "body": .string("Created through FabricXPCGateway")
+    ],
+    confirmationToken: token
+)
+
+print(tools.map(\.name))
+print(result.content.first?.text ?? "")
+```
+
 ## Notes
 
 - `FabricBrokerRuntime --describe` renders the LaunchAgent plist used by the install script.
 - The default LaunchAgent label and Mach service name are both `com.stevemurr.fabric.broker`.
-- `FabricGateway` is a projection layer, not a complete MCP server implementation.
+- `FabricGateway` and `FabricXPCGateway` are projection layers, not complete MCP server implementations.

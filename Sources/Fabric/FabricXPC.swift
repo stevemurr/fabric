@@ -187,6 +187,13 @@ func fabricFirstPartyBootstrapGrants(
     func listActions(_ callerAppID: String, reply: @escaping (Data?, NSError?) -> Void)
     func resolveContexts(_ callerAppID: String, uriData: Data, reply: @escaping (Data?, NSError?) -> Void)
     func invokeAction(_ callerAppID: String, invocationData: Data, reply: @escaping (Data?, NSError?) -> Void)
+    func issueConfirmationToken(
+        _ callerAppID: String,
+        calleeAppID: String,
+        actionID: String,
+        ttl: Double,
+        reply: @escaping (String?, NSError?) -> Void
+    )
     func subscribe(_ callerAppID: String, requestData: Data, reply: @escaping (String?, NSError?) -> Void)
     func cancelSubscription(_ subscriptionID: String, reply: @escaping (NSError?) -> Void)
     func publishEvent(_ appID: String, eventData: Data, reply: @escaping (NSError?) -> Void)
@@ -520,6 +527,27 @@ public final class FabricXPCClient: @unchecked Sendable {
         connection.resume()
     }
 
+    init(
+        connection: NSXPCConnection,
+        resourceProvider: AnyFabricResourceProvider? = nil,
+        actionProvider: AnyFabricActionProvider? = nil,
+        subscriptionProvider: AnyFabricSubscriptionProvider? = nil
+    ) {
+        self.machServiceName = "<listener-endpoint>"
+        self.connection = connection
+        self.endpoint = FabricXPCClientEndpoint(
+            resourceProvider: resourceProvider,
+            actionProvider: actionProvider,
+            subscriptionProvider: subscriptionProvider,
+            subscriptionStore: subscriptionStore
+        )
+
+        connection.remoteObjectInterface = NSXPCInterface(with: FabricXPCBrokerProtocol.self)
+        connection.exportedInterface = NSXPCInterface(with: FabricXPCClientProtocol.self)
+        connection.exportedObject = endpoint
+        connection.resume()
+    }
+
     deinit {
         connection.invalidate()
     }
@@ -652,6 +680,36 @@ public final class FabricXPCClient: @unchecked Sendable {
                 }
             } catch {
                 continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    public func issueConfirmationToken(
+        callerAppID: String,
+        calleeAppID: String,
+        actionID: String,
+        ttl: TimeInterval = 300
+    ) async throws -> String {
+        try await withCheckedThrowingContinuation { continuation in
+            brokerProxy().issueConfirmationToken(
+                callerAppID,
+                calleeAppID: calleeAppID,
+                actionID: actionID,
+                ttl: ttl
+            ) { token, error in
+                if let error {
+                    continuation.resume(throwing: FabricXPCErrorBridge.asError(error))
+                    return
+                }
+
+                guard let token else {
+                    continuation.resume(
+                        throwing: FabricError.invalidConfirmationToken("Broker returned no confirmation token")
+                    )
+                    return
+                }
+
+                continuation.resume(returning: token)
             }
         }
     }
@@ -836,6 +894,20 @@ actor FabricXPCServiceCoordinator {
         try await broker.invokeAction(callerAppID: callerAppID, invocation: invocation)
     }
 
+    func issueConfirmationToken(
+        callerAppID: String,
+        calleeAppID: String,
+        actionID: String,
+        ttl: TimeInterval
+    ) async -> String {
+        await broker.issueConfirmationToken(
+            callerAppID: callerAppID,
+            calleeAppID: calleeAppID,
+            actionID: actionID,
+            ttl: ttl
+        )
+    }
+
     func publishEvent(appID: String, event: FabricEvent) async {
         guard event.appID == appID else { return }
         await broker.publish(event)
@@ -892,6 +964,17 @@ public final class FabricXPCService: NSObject, NSXPCListenerDelegate, FabricXPCB
         broker: FabricBroker = FabricBroker()
     ) {
         self.listener = NSXPCListener(machServiceName: machServiceName)
+        self.broker = broker
+        self.coordinator = FabricXPCServiceCoordinator(broker: broker)
+        super.init()
+        listener.delegate = self
+    }
+
+    init(
+        listener: NSXPCListener,
+        broker: FabricBroker = FabricBroker()
+    ) {
+        self.listener = listener
         self.broker = broker
         self.coordinator = FabricXPCServiceCoordinator(broker: broker)
         super.init()
@@ -1002,6 +1085,26 @@ public final class FabricXPCService: NSObject, NSXPCListenerDelegate, FabricXPCB
             } catch {
                 replyBox.send(nil, FabricXPCErrorBridge.asNSError(error))
             }
+        }
+    }
+
+    public func issueConfirmationToken(
+        _ callerAppID: String,
+        calleeAppID: String,
+        actionID: String,
+        ttl: Double,
+        reply: @escaping (String?, NSError?) -> Void
+    ) {
+        let replyBox = FabricStringReplyBox(reply)
+        let coordinator = self.coordinator
+        Task {
+            let token = await coordinator.issueConfirmationToken(
+                callerAppID: callerAppID,
+                calleeAppID: calleeAppID,
+                actionID: actionID,
+                ttl: ttl
+            )
+            replyBox.send(token, nil)
         }
     }
 

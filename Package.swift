@@ -15,9 +15,17 @@ let package = Package(
             name: "FabricGateway",
             targets: ["FabricGateway"]
         ),
+        .library(
+            name: "FabricShowcaseSupport",
+            targets: ["FabricShowcaseSupport"]
+        ),
         .executable(
             name: "FabricBrokerRuntime",
             targets: ["FabricBrokerRuntime"]
+        ),
+        .executable(
+            name: "FabricShowcase",
+            targets: ["FabricShowcase"]
         ),
     ],
     targets: [
@@ -28,13 +36,21 @@ let package = Package(
             name: "FabricGateway",
             dependencies: ["Fabric"]
         ),
+        .target(
+            name: "FabricShowcaseSupport",
+            dependencies: ["Fabric"]
+        ),
         .executableTarget(
             name: "FabricBrokerRuntime",
             dependencies: ["Fabric", "FabricGateway"]
         ),
+        .executableTarget(
+            name: "FabricShowcase",
+            dependencies: ["Fabric", "FabricGateway", "FabricShowcaseSupport"]
+        ),
         .testTarget(
             name: "FabricTests",
-            dependencies: ["Fabric", "FabricGateway"]
+            dependencies: ["Fabric", "FabricGateway", "FabricShowcaseSupport"]
         ),
     ]
 )
